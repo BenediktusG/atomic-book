@@ -1,0 +1,154 @@
+openapi: 3.0.3
+info:
+  title: AtomicBook API
+  description: A high-concurrency event booking API for learning database locking.
+  version: 1.0.0
+servers:
+  - url: http://localhost:8080
+    description: Local Development Server
+
+paths:
+  # ----------------------------
+  # ADMIN ENDPOINTS
+  # ----------------------------
+  /admin/event:
+    post:
+      summary: Initialize a new Event
+      description: Sets the total inventory for an event.
+      operationId: createEvent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateEventRequest'
+      responses:
+        '201':
+          description: Event created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Event'
+        '400':
+          description: Invalid input
+
+  # ----------------------------
+  # USER ENDPOINTS
+  # ----------------------------
+  /book:
+    post:
+      summary: Book a Ticket
+      description: Attempts to reserve a seat. Subject to race conditions in Phase 1/2.
+      operationId: bookTicket
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BookingRequest'
+      responses:
+        '200':
+          description: Booking successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookingResponse'
+        '400':
+          description: Sold out or Invalid Event
+        '409':
+          description: Concurrency conflict (Used in Phase 3)
+
+  /event/{id}:
+    get:
+      summary: Get Event Status
+      description: Returns current inventory status (Total vs Available).
+      operationId: getEvent
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Event details found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventStatus'
+        '404':
+          description: Event not found
+
+components:
+  schemas:
+    # INPUT: Admin creates event
+    CreateEventRequest:
+      type: object
+      required:
+        - name
+        - total_seats
+      properties:
+        name:
+          type: string
+          example: "Taylor Swift - Eras Tour"
+        total_seats:
+          type: integer
+          minimum: 1
+          example: 100
+
+    # INPUT: User tries to book
+    BookingRequest:
+      type: object
+      required:
+        - event_id
+        - user_id
+      properties:
+        event_id:
+          type: integer
+          example: 1
+        user_id:
+          type: string
+          example: "user_55"
+
+    # OUTPUT: Standard Event Object
+    Event:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        total_seats:
+          type: integer
+        available_seats:
+          type: integer
+
+    # OUTPUT: Booking Confirmation
+    BookingResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          example: "Booking confirmed"
+        booking_id:
+          type: integer
+          example: 1024
+        remaining_seats:
+          type: integer
+          example: 49
+
+    # OUTPUT: Status Report
+    EventStatus:
+      type: object
+      properties:
+        event_id:
+          type: integer
+        name:
+          type: string
+        total_seats:
+          type: integer
+        available_seats:
+          type: integer
+        booked_count:
+          type: integer
+          description: Calculated as (total - available)
