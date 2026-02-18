@@ -18,6 +18,8 @@ func main() {
 	database.Connect()
 	defer database.DB.Close()
 	database.InitSchema()
+	database.InitRedis()
+	defer database.RedisClient.Close()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /admin/event", handlers.CreateEvent)

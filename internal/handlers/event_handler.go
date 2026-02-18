@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"time"
 )
 
 func CreateEvent(w http.ResponseWriter, r *http.Request) {
@@ -53,9 +54,14 @@ func BookEvent(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid user ID", http.StatusBadRequest)
 		return
 	}
-
+	tx, err := database.DB.Begin(context.Background())
+	if err != nil {
+		http.Error(w, "Failed to start transaction", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback(context.Background())
 	var event models.Event
-	err := database.DB.QueryRow(context.Background(), "SELECT available_seats FROM events WHERE id = $1", req.EventID).Scan(&event.AvailableSeats)
+	err = tx.QueryRow(context.Background(), "SELECT available_seats FROM events WHERE id = $1 FOR UPDATE", req.EventID).Scan(&event.AvailableSeats)
 	if err != nil {
 		http.Error(w, "Event not found", http.StatusNotFound)
 		return
@@ -75,7 +81,7 @@ func BookEvent(w http.ResponseWriter, r *http.Request) {
 	`
 
 	var bookingResponse models.BookingResponse
-	err = database.DB.QueryRow(context.Background(), query, newAvailableSeats, req.EventID).Scan(&bookingResponse.RemainingSeats)
+	err = tx.QueryRow(context.Background(), query, newAvailableSeats, req.EventID).Scan(&bookingResponse.RemainingSeats)
 	if err != nil {
 		http.Error(w, "Failed to update event", http.StatusInternalServerError)
 		return
@@ -88,27 +94,41 @@ func BookEvent(w http.ResponseWriter, r *http.Request) {
 	`
 
 	
-	err = database.DB.QueryRow(context.Background(), query, req.EventID, req.UserID).Scan(&bookingResponse.BookingID)
+	err = tx.QueryRow(context.Background(), query, req.EventID, req.UserID).Scan(&bookingResponse.BookingID)
 	if err != nil {
 		http.Error(w, "Failed to book event", http.StatusInternalServerError)
 		return
 	}
 
+	cacheKey := "event:" + string(req.EventID)
+	database.RedisClient.Del(context.Background(), cacheKey)
+
 	bookingResponse.Message = "Booking successful"
 
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(bookingResponse)
+	tx.Commit(context.Background())
 }
 
 func GetEvent(w http.ResponseWriter, r *http.Request) {
 	eventID := r.PathValue("id")
+	cacheKey := "event:" + eventID
+	val, err := database.RedisClient.Get(context.Background(), cacheKey).Result()
+
+	if err == nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Cache", "HIT")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(val))
+		return
+	}
 	var eventResponse models.EventResponse
 	query := `
 		SELECT *
 		FROM events
 		WHERE id = $1;
 	`
-	err := database.DB.QueryRow(context.Background(), query, eventID).Scan(&eventResponse.EventId, &eventResponse.Name, &eventResponse.TotalSeats, &eventResponse.AvailableSeats)
+	err = database.DB.QueryRow(context.Background(), query, eventID).Scan(&eventResponse.EventId, &eventResponse.Name, &eventResponse.TotalSeats, &eventResponse.AvailableSeats)
 	if err != nil {
 		http.Error(w, "Event not found", http.StatusNotFound)
 		return
@@ -126,7 +146,12 @@ func GetEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	JSONBytes, _ := json.Marshal(eventResponse)
+
+	database.RedisClient.Set(context.Background(), cacheKey, JSONBytes, 10*time.Second)
+
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Cache", "MISS")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(eventResponse)
+	w.Write(JSONBytes)
 }
