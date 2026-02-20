@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"time"
 )
 
@@ -100,7 +101,7 @@ func BookEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cacheKey := "event:" + string(req.EventID)
+	cacheKey := "event:" + strconv.Itoa(req.EventID)
 	database.RedisClient.Del(context.Background(), cacheKey)
 
 	bookingResponse.Message = "Booking successful"
