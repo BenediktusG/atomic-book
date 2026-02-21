@@ -1,0 +1,30 @@
+name: AtomicBook CI Pipeline
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: Install dependencies
+        run: go mod download
+
+      - name: Build go application
+        run: go build -o main cmd/api/main.go
+
+      - name: Test Docker Build
+        run: docker build -t atomic-book:test .
