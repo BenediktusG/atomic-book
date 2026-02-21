@@ -14,7 +14,6 @@ FROM alpine:3.23.3
 WORKDIR /root/
 
 COPY --from=builder /app/main .
-COPY --from=builder /app/.env .
 
 EXPOSE 8080
 
